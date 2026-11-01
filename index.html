@@ -1038,6 +1038,7 @@ const SITE={
  links:[['GitHub','https://github.com/EEMustafaHussein','#a78bfa']],
  whatsapp:'',
  aiKey:'',
+ aiProxy:'', // رابط Cloudflare Worker (يخفي مفتاح Gemini) — انظر ملف ai-worker.js
  emailjs:{service:'',template:'',publicKey:''}
 };
 
@@ -1183,21 +1184,21 @@ function gOpp(){let round=0,score=0,t0=Date.now();
 /* ===================== AI ASSISTANT "مصطفى" ===================== */
 /* ضع مفتاح Gemini هنا (من aistudio.google.com) وقيّده باسم موقعك من Google Cloud حتى ما يستخدمه غيرك */
 const SITE_AI_KEY=SITE.aiKey;
-const AI_MODELS=['gemini-2.5-flash','gemini-2.0-flash','gemini-1.5-flash'];
-const aiKey=()=>(U()&&U().aiKey)||DB.aiKey||SITE_AI_KEY;
+const AI_MODELS=['gemini-flash-lite-latest','gemini-flash-latest','gemini-3.8-flash'];
+const aiKey=()=>(U()&&U().aiKey)||DB.aiKey||SITE_AI_KEY||(SITE.aiProxy?'proxy':'');
 let aiHist=[];
 function aiSys(){const u=U();return `أنت "مصطفى"، مدرّس لغة ألمانية ودود ومرح داخل موقع "درب الألمانية". تكلّم بالعربي بلهجة عراقية خفيفة ومفهومة، واكتب الأمثلة الألمانية بين علامتي « ». المتعلم اسمه ${u.name} ومستواه ${curLevel()}.
 قواعدك: اجعل الإجابات قصيرة وواضحة (أقل من 150 كلمة إلا إذا طُلب شرح). إذا كتب جملة ألمانية، صحّحها أولاً واشرح الخطأ ببساطة. اعطِ مثالين كحد أقصى. شجّعه دائماً. إذا طلب محادثة، تكلّم بالألمانية بمستواه وضع الترجمة العربية تحت كل جملة. لا تخرج عن تعلم الألمانية والحياة في ألمانيا إلا بلطف.`}
 async function aiAsk(q){const key=aiKey();if(!key)return aiOffline(q);
  aiHist.push({role:'user',parts:[{text:q}]});const body={systemInstruction:{parts:[{text:aiSys()}]},contents:aiHist.slice(-12),generationConfig:{temperature:.7,maxOutputTokens:700}};let last='';
- for(const m of AI_MODELS){try{const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${encodeURIComponent(key)}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-   const j=await r.json();if(r.ok){const t=(j.candidates&&j.candidates[0]&&j.candidates[0].content&&j.candidates[0].content.parts||[]).map(p=>p.text||'').join('').trim()||'ما گدرت أجاوب، جرّب تسأل بطريقة ثانية.';aiHist.push({role:'model',parts:[{text:t}]});return t}
+ for(const m of AI_MODELS){try{const ac=new AbortController();const to=setTimeout(()=>ac.abort(),25000);const url=key==='proxy'?`${SITE.aiProxy}?model=${m}`:`https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${encodeURIComponent(key)}`;const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),signal:ac.signal});clearTimeout(to);
+   const j=await r.json();if(r.ok){const t=(j.candidates&&j.candidates[0]&&j.candidates[0].content&&j.candidates[0].content.parts||[]).filter(p=>!p.thought).map(p=>p.text||'').join('').trim()||'ما گدرت أجاوب، جرّب تسأل بطريقة ثانية.';aiHist.push({role:'model',parts:[{text:t}]});return t}
    last=(j.error&&j.error.message)||r.status;if(r.status===400&&/API key/i.test(last))break;if(r.status===429)break}catch(e){last=e.message}}
  aiHist.pop();return `⚠️ ما گدرت أتصل بالذكاء الاصطناعي (${esc(String(last)).slice(0,120)}). إذا المشكلة بالمفتاح راجع لوحة المالك، وإذا "quota" فالحد المجاني اليومي خلص، جرّب بعدين.`}
 function aiOffline(q){const all=allWords();const t=q.trim();const f=all.filter(w=>norm(w.de).includes(norm(t))||w.ar.includes(t)).slice(0,5);
  if(f.length&&t.length>1)return `لگيت بالقاموس:\n${f.map(w=>`• «${w.de}» = ${w.ar}${w.ex?`\n  مثال: «${w.ex}»`:''}`).join('\n')}`;
  return `هلا ${U().name}! 👋 آني مصطفى، مساعدك.\nحالياً أشتغل بوضع محدود: أگدر أترجملك أي كلمة من قاموس الموقع (اكتب الكلمة بالعربي أو الألماني).\nحتى أصير مساعد ذكي كامل (أصحح جملك وأسولف وياك بالألماني) لازم مالك الموقع يضيف مفتاح Gemini المجاني.`}
-function aiFmt(t){return esc(t).replace(/\*\*(.+?)\*\*/g,'<b>$1</b>').replace(/«([^»]+)»/g,(m,g)=>`<span class="de" style="background:rgba(255,197,77,.16);color:#ffd98a;border-radius:4px;padding:0 4px;cursor:pointer" data-say="${g}">${g}</span>`).replace(/\n/g,'<br>')}
+function aiFmt(t){return esc(t).replace(/\*\*(.+?)\*\*/g,'<b>$1</b>').replace(/\*([^*\n]+?)\*/g,'<i>$1</i>').replace(/«([^»]+)»/g,(m,g)=>`<span class="de" style="background:rgba(255,197,77,.16);color:#ffd98a;border-radius:4px;padding:0 4px;cursor:pointer" data-say="${g}">${g}</span>`).replace(/\n/g,'<br>')}
 function assistant(){const u=U();const has=!!aiKey();
  $('#v').innerHTML=`<div class="card" style="padding:0;overflow:hidden;max-width:820px;margin:0 auto">
   <div class="row" style="padding:14px 18px;border-bottom:var(--bd);background:linear-gradient(120deg,rgba(124,92,255,.35),rgba(255,92,138,.2))"><div style="width:52px;height:52px;border-radius:50%;background:var(--blue);border:var(--bd);display:grid;place-items:center;color:#fff;font-family:Alexandria;font-weight:900;font-size:1.4rem;position:relative">م<span style="position:absolute;bottom:0;left:0;width:14px;height:14px;border-radius:50%;background:${has?'var(--grn)':'#aaa'};border:2px solid var(--ink)"></span></div>
